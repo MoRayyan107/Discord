@@ -1,0 +1,19 @@
+# Ignore compiled class files and build artifacts
+*.class
+*.jar
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+out/
+bin/
+target/
+
+# this is for file transfering that we dont wanna see in the repo
+*.pdf
+*.txt
+*.ts
+*.mp4
+*.jpg
+*.png

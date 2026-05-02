@@ -5,6 +5,8 @@ import stage3.groupchat.interfaces.GroupChatInterfaces;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -18,8 +20,28 @@ public class SafeGroupChat implements GroupChatInterfaces {
     // This is a thread safe way to generate sequence numbers without needing to synchronize the entire method
     private final AtomicInteger sequenceNumber = new AtomicInteger(0);
 
+    // using a blocking queue for sending messages so user thread always listen than working on sending messages
+    private final BlockingQueue<String[]> messagesQueue = new LinkedBlockingQueue<>();
+
     public SafeGroupChat(String name) {
         this.name = name;
+
+        Thread dispatcherThread = new Thread(() -> {
+            while (true) {
+                try {
+                    String[] msgArray = messagesQueue.take(); // 0 -> username and 1 -> messgae
+                    broadcast(msgArray[0], msgArray[1]);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+
+        // kills when the server is down
+        dispatcherThread.setDaemon(true);
+        dispatcherThread.start();
+
     }
 
     @Override
@@ -77,6 +99,8 @@ public class SafeGroupChat implements GroupChatInterfaces {
         String senderName = (sender != null) ? sender.getUsername() : "TestThread";
         String format;
         String actualMsg;
+        messagesQueue.offer(new String[]{senderName, message}); // better than put (doesnt throw any issues is the queue is full)
+
         try {
             the_lock.lock();
             actualMsg = senderName + ": " + message;
@@ -85,7 +109,6 @@ public class SafeGroupChat implements GroupChatInterfaces {
         } finally {
             the_lock.unlock();
         }
-        broadcast(senderName, actualMsg);
     }
 
     /**

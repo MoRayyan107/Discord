@@ -2,10 +2,16 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Server {
 
     private static final int PORT = 8888;
+
+    // Pool count for thread management
+    private static final int THREAD_POOL_COUNT  = 200;
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_POOL_COUNT);
 
     /**
      * This gets the Servers IP address and prints it to the console so that the user can connect to it
@@ -41,9 +47,8 @@ public class Server {
                 System.out.println("Client connected: " + clientSocket.getInetAddress().getHostAddress());
 
                 ClientHandler handler = new ClientHandler(clientSocket);
-                Thread thread = new Thread(handler);
+                threadPool.execute(handler);
 
-                thread.start();
             }
         } catch (IOException e) {
             System.out.println("Server error: " + e.getMessage());

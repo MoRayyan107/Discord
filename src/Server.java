@@ -1,3 +1,5 @@
+import db.UsersDB;
+
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -42,6 +44,7 @@ public class Server {
                 try {
                     threadPool.shutdown(); // no new task to be done
                     threadPool.awaitTermination(45, TimeUnit.SECONDS);
+                    ClientHandler.closeDB(); // close the DB connection when the server is shutting down
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt(); // restore the interrupted status
                 }

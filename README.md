@@ -1,92 +1,172 @@
-# Discord Project
+# Java Chat Server
 
-A multi-threaded chat server and client system (Java) created for CS313 — System Concurrency. The project demonstrates:
-- socket programming (TCP),
-- multithreading and client handling,
-- synchronization techniques (locks, concurrent collections),
-- and per-group message history.
+A production-aware, multi-threaded chat server and client system built in Java.
 
-Contributors
+Originally developed as a group project for CS313 — System Concurrency at university.
+Independently expanded to demonstrate real concurrency patterns used in production systems.
+
 ---
-- Mohamed Sharif
-- Mohammad Rayyan
-- Russell Hall
-- Ghassan Shalayel
-- John Holland
-- Ethan Holland
 
-What this repository contains
+## Architecture
+
+```
++--------+        TCP Socket         +------------------+
+| Client | <-----------------------> |      Server      |
++--------+                           | (Thread Pool 200)|
+                                     +------------------+
+                                              |
+                                 one ClientHandler per client
+                                              |
+                                    +------------------+
+                                    |  ClientHandler   |
+                                    | (rate limiting)  |
+                                    +------------------+
+                                              |
+                                    +------------------+
+                                    |  SafeGroupChat   |
+                                    |                  |
+                                    | - member list    |
+                                    | - msg history    |
+                                    | - BlockingQueue  |
+                                    | - dispatcher     |
+                                    +------------------+
+```
+
+**Message flow when a user sends a message:**
+```
+User types message
+  → Client.java sends over TCP socket
+    → ClientHandler reads it, checks rate limit
+      → calls sendMessage() on group
+        → message dropped into group's BlockingQueue
+          → dispatcher thread picks it up
+            → delivers to all group members
+```
+
+**Key design principle:** The user's thread never blocks on delivery.
+It drops the message and immediately goes back to listening.
+
 ---
-- A simple server (`Server.java`) that listens for TCP clients (default port 8888).
-- A console client (`Client.java`) that connects, sends commands and receives messages.
-- A `ClientHandler` that parses commands and routes messages to either all clients or per-group.
-- Group chat implementations in `src/groupchat/`:
-  - `SafeGroupChat` (uses locks to protect membership/history)
-  - `UnsafeGroupChat` (no synchronization — used for teaching/tests)
-- Small unit-like tests and examples in `src/groupchat/GroupChatTest.java` and `src/messagehistory/MessageHistoryTest.java`.
 
-Features / Behavior
+## What Was Built & Why
+
+### Original (University Project)
+- TCP socket server with one raw thread per client
+- Group chat with `ReentrantLock` for thread safety
+- `SafeGroupChat` and `UnsafeGroupChat` to demonstrate race conditions
+- Message history replay on group join
+- File transfer and video streaming between clients
+
+### Expanded Independently
+
+#### Phase 1 — Thread Pool
+**Problem:** Raw thread per client is unbounded. At scale, memory and OS scheduling collapse.
+
+**Solution:** Fixed `ExecutorService` thread pool of 200 threads. Threads are reused — when a client disconnects, that thread picks up the next waiting connection.
+
+**Why 200?** Chat servers are I/O-bound. Threads spend most of their time blocked on `socket.read()`, not computing. So we can safely run far more threads than CPU cores.
+
+```java
+private final ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_POOL_COUNT);
+// ...
+threadPool.execute(handler); // replaces: new Thread(handler).start()
+```
+
+#### Phase 2 — BlockingQueue per Group
+**Problem:** The sender's thread looped through all group members and wrote to each socket directly. One slow client could freeze the sender's thread entirely.
+
+**Solution:** Each `SafeGroupChat` owns a `LinkedBlockingQueue<String[]>` and a dedicated dispatcher thread. `sendMessage()` drops the message in the queue and returns immediately. The dispatcher drains the queue and handles delivery.
+
+```
+Before: sender's thread → loops all members → writes to each socket (can block)
+After:  sender's thread → queue.offer(message) → done
+        dispatcher      → queue.take() → loops members → writes to sockets
+```
+
+#### Phase 3 — Rate Limiting + Graceful Shutdown
+**Rate limiting:** Each `ClientHandler` tracks message count and window start time. Max 5 messages per 10 seconds. Excess messages are rejected with a countdown telling the user when they can send again.
+
+**Graceful shutdown:** A JVM shutdown hook catches `Ctrl+C`. The thread pool stops accepting new tasks (`shutdown()`) and waits up to 45 seconds for in-flight work to finish (`awaitTermination()`). Dispatcher threads are daemon threads — they die cleanly with the server.
+
 ---
-- Multiple clients can connect concurrently.
-- Clients can create and join named group chats. Each group maintains its own message history.
 
-- Commands supported by the client:
+## Commands
 
-| Command                   | Description                                    |
-|---------------------------|------------------------------------------------|
-| `!help`                   | Show this help message.                        |
-|`!quit`                     | Disconnect from the Group.                     |
-|`!status`                   | Show current connection and group status.      |
-| `!status <statMessage>`         | Update your status message (not broadcasted).  |
-| `!create <groupName>`       | Create a group and auto-join it.               |
-| `!join <groupName>`         | Join an existing group and replay its history. |
-| `!gm <groupName> <message>` | Explicitly send a message to a named group.    |
-| `exit`                      | Disconnect from the server.                    |
+| Command | Description |
+|---|---|
+| `!help` | Show all commands |
+| `!quit` | Disconnect from server |
+| `!status` | Show all users' statuses |
+| `!status <text>` | Set your status |
+| `!friend <username>` | Send a friend request |
+| `!friends` | List your friends |
+| `!create <groupName>` | Create a group and auto-join |
+| `!join <groupName>` | Join a group (replays history) |
+| `!leave` | Leave current group |
+| `!gm <groupName> <message>` | Send to a group without joining |
+| `!sendfile <username>` | Send a file to a user |
+| `!stream <username>` | Stream video to a user |
+| `exit` | Disconnect |
 
-
-Notes about thread-safety and tests
 ---
-- `SafeClasses` uses a ReentrantLock to protect its member list and message history.
-- `UnsafeClasses` is intentionally not synchronized and will show race conditions under concurrent access (used by tests to demonstrate failures).
 
-Requirements
+## Thread Safety
+
+| Class | Mechanism | Why |
+|---|---|---|
+| `SafeGroupChat` | `ReentrantLock` | Protects member list and message history from concurrent modification |
+| `ClientHandler` | `Collections.synchronizedList` | Shared client list accessed by multiple handler threads |
+| `groupChats` map | `ConcurrentHashMap` | Multiple handlers create/join groups concurrently |
+| `sequenceNumber` | `AtomicInteger` | Lock-free thread-safe counter for message ordering |
+| `UnsafeGroupChat` | None (intentional) | Used in tests to demonstrate what race conditions look like |
+
 ---
-- Java 11 or later is recommended (the project uses modern language features in some places).
-- No external dependencies — the project uses the Java standard library.
 
-How to compile and run (simple)
+## Requirements
+
+- Java 17+
+- No external dependencies — standard library only
+
 ---
-Open two terminals/powershell windows.
 
-1) Server terminal (compile and run server):
+## How to Run
 
-```powershell
-javac src\Server.java src\ClientHandler.java
+Open two terminals.
+
+**Terminal 1 — Server:**
+```bash
+javac src/Server.java src/ClientHandler.java
 java -cp src Server
 ```
 
-2) Client terminal (compile and run client):
-
-```powershell
-javac src\Client.java
+**Terminal 2 — Client:**
+```bash
+javac src/Client.java
 java -cp src Client
 ```
 
-Notes:
-- The commands above assume you're running them from the project root and that the `src` folder contains `.java` files at top-level. Adjust classpath or compile commands if you use an IDE.
-- Server listens on port 8888 by default. Change the code if you want a different port.
+Server listens on port `8888` by default.
 
-How to test group behavior (manual quick test)
 ---
-1. Start server.
-2. Start three clients (A, B, C).
-3. A: `!create groupA` (A auto-joins)
+
+## Quick Test
+
+1. Start server
+2. Start three clients (A, B, C)
+3. A: `!create groupA`
 4. B: `!join groupA`
-5. C: `!create groupB` and `!join groupB`
-6. From A or B, send plain text: `hello` — only A & B should see it.
-7. From C, send plain text: `hey` — only members of `groupB` should see it.
-8. Use `!gm groupB secret` to send to another group explicitly.
+5. C: `!create groupB`
+6. A or B send `hello` — only groupA members see it
+7. C sends `hey` — only groupB members see it
+8. Test rate limit: send 6+ messages rapidly — 6th should be rejected with countdown
+9. `Ctrl+C` server — observe graceful shutdown
 
-License / attribution
 ---
-This repository was created as a university coursework project. Use for learning and experimental purposes.
+
+## Contributors
+
+**Original university project:**
+Mohamed Sharif, Mohammad Rayyan, Russell Hall, Ghassan Shalayel, John Holland, Ethan Holland
+
+**Production expansion (Phases 1–3):**
+Mohammad Rayyan

@@ -64,7 +64,7 @@ public class UnsafeFriendManager implements FriendInterface {
                 return u.friends.toString();
             }
             else {
-                return "No friends";
+                return "No Friends";
             }
         } finally {
             mapLock.unlock();

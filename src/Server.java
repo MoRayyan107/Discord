@@ -4,6 +4,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class Server {
 
@@ -35,6 +36,17 @@ public class Server {
      */
     public void startServer() throws IOException {
         try {
+
+            // block for detecting ctrl+c or automatic user shutdown
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    threadPool.shutdown(); // no new task to be done
+                    threadPool.awaitTermination(45, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // restore the interrupted status
+                }
+            }));
+
             ServerSocket serverSocket = new ServerSocket(PORT);
             System.out.println("Server Running on port: " + PORT);
 

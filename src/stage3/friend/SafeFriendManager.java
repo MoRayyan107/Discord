@@ -64,7 +64,7 @@ public class SafeFriendManager implements FriendInterface {
             if (u != null && !u.friends.isEmpty()) {
                 return u.friends.toString();
             } else {
-                return "No friends";
+                return "No Friends";
             }
         } finally {
             mapLock.unlock();

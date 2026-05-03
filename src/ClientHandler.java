@@ -36,6 +36,10 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private String username;
     private final String clientIP;
 
+    // rate limit checks
+    private int messageCountForRateLimit = 0;
+    private Long lastMessageTime = System.currentTimeMillis();
+
     // volatile ensures thread safety for each thread for a user group
     private volatile String currentGroup;
 
@@ -279,10 +283,24 @@ public class ClientHandler implements Runnable, ChatParticipant {
      */
 
     private void handleBroadcast(String msgToSend) {
+
+        if (messageCountForRateLimit > 5 && lastMessageTime + 10000 >= System.currentTimeMillis()) {
+            consoleDisplay("CANNOT SEND MESSAGE RATE LIMIT HOT WAIT FOR " + ((lastMessageTime + 10000 - System.currentTimeMillis()) / 1000) + " SECONDS");
+            return;
+        }
+
+        // reset the rate limit if 10 seconds have passed since the last message was sent
+        if (System.currentTimeMillis() - lastMessageTime > 10000) {
+            messageCountForRateLimit = 0;
+            lastMessageTime = System.currentTimeMillis();
+        }
+
         // only add to message History if current group exists
         if (currentGroup != null) {
             messageHistory.addMessage(msgToSend);
         }
+
+        messageCountForRateLimit++;
         broadcastMessage(msgToSend);
     }
 

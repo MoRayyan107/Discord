@@ -1,10 +1,10 @@
 import stage4.FileReceive;
 import stage4.FileTransfer;
 import stage4.StreamReceive;
-import stage4.StreamTransfer;
 
 import java.io.*;
 import java.net.Socket;
+import java.sql.SQLException;
 import java.util.Scanner;
 
 public class Client {
@@ -15,21 +15,62 @@ public class Client {
     private BufferedWriter out;
     private BufferedReader in;
     private String username;
-
+    private String password;
+    private String email;
 
     /**
      * Initializes the client by setting up the socket connection and input/output streams.
+     * Login
      *
      * @param clientSocket Socket object
      * @param username Clients Username
+     * @param password Clients Password
      */
-    public Client(Socket clientSocket, String username) {
+    public Client(Socket clientSocket, String username, String password) {
         try{
             this.clientSocket = clientSocket;
             this.username = username;
+            this.password = password;
 
             out = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream(), "UTF-8"));
             in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream(), "UTF-8"));
+
+            out.write("1\n");
+            out.write(username + "\n");
+            out.write(password + "\n");
+            out.flush();
+
+            System.out.println(username + " connected to server at " + clientSocket.getInetAddress().getHostAddress() + ":" + SERVER_PORT);
+        } catch(IOException e) {
+            closeConnections(clientSocket, out, in);
+            System.out.println("Error initializing client: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Initializes the client by setting up the socket connection and input/output streams.
+     * Registreation
+     *
+     * @param clientSocket Socket object
+     * @param username Clients Username
+     * @param password Clients Password
+     * @param email Clients Email
+     */
+    public Client(Socket clientSocket, String username, String password, String email) {
+        try{
+            this.clientSocket = clientSocket;
+            this.username = username;
+            this.password = password;
+            this.email = email;
+
+            out = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream(), "UTF-8"));
+            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream(), "UTF-8"));
+
+            out.write("2\n");
+            out.write(username + "\n");
+            out.write(password + "\n");
+            out.write(email + "\n");
+            out.flush();
 
             System.out.println(username + " connected to server at " + clientSocket.getInetAddress().getHostAddress() + ":" + SERVER_PORT);
         } catch(IOException e) {
@@ -44,8 +85,16 @@ public class Client {
      */
     public void sendMessage() {
         try {
-            out.write(username + "\n"); // send username to server
-            out.flush();
+            String serverMsg = in.readLine();
+            if (serverMsg.equals("AUTH_FAILURE")) {
+                System.out.println("Authentication failed. Please check your credentials and try again.");
+                return;
+            }
+
+            if (serverMsg.equals("REG_FAILURE")) {
+                System.out.println("Registration failed. Please check your credentials and try again.");
+                return;
+            }
 
             Scanner scanner = new Scanner(System.in);
 
@@ -151,20 +200,40 @@ public class Client {
     }
 
 
-
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, SQLException {
         System.out.print("Enter your username: ");
         Scanner scanner = new Scanner(System.in);
 
-        String username = scanner.nextLine();
         //System.out.println("Connecting to server at " + SERVER_IP + ":" + SERVER_PORT + "...");
         System.out.print("Enter the Server's IP address (e.g., 192.168.1.5): or connect to the localhost");
         String serverIp = scanner.nextLine();
 
         System.out.println("Connecting to server at " + serverIp + ":" + SERVER_PORT + "...");
-
         Socket socket = new Socket(serverIp, SERVER_PORT);
-        Client client = new Client(socket, username);
+
+        System.out.println("Choosse the following options: \n 1. Login \n 2. Register");
+        int option = scanner.nextInt();
+        scanner.nextLine(); // consume the newline character
+
+        Client client = null;
+        if (option == 1) {
+            System.out.println("Enter your username: ");
+            String username = scanner.nextLine();
+            System.out.println("Enter your password: ");
+            String password = scanner.nextLine();
+
+            client = new Client(socket, username, password);
+        } else if (option == 2) {
+            System.out.println("Enter your username: ");
+            String username = scanner.nextLine();
+            System.out.println("Enter your password: ");
+            String password = scanner.nextLine();
+            System.out.println("Enter your email: ");
+            String email = scanner.nextLine();
+
+            client = new Client(socket, username, password, email);
+        }
+
 
         client.listenMessages(); // start listening for messages from server
         client.sendMessage(); // start sending messages to server

@@ -19,3 +19,6 @@ target/
 *.png
 
 discord-project-notes.md
+
+*.xml
+*.db

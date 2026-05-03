@@ -2,7 +2,8 @@ import org.junit.jupiter.api.Test;
 import stage3.friend.SafeFriendManager;
 import stage3.friend.UnsafeFriendManager;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class FriendTest {
 

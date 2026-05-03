@@ -2,10 +2,9 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.net.Socket;
+import java.sql.SQLException;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
 
 // interfaces
 import stage3.status.StatusInterface;
@@ -19,7 +18,7 @@ import stage3.status.SafeStatus;  // SAFE VERSION OF STATUS
 import stage3.friend.SafeFriendManager;
 import stage3.groupchat.SafeGroupChat;
 import stage3.messagehistory.SafeMessageHistory;
-import stage4.FileTransfer;
+import db.UsersDB;
 
 /**
  * Handles each connected client on its own thread.
@@ -33,8 +32,18 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private Socket socket;
     private BufferedReader in;
     private BufferedWriter out;
-    private String username;
+    private final String username;
     private final String clientIP;
+
+    // DB initialising
+    private final static UsersDB usersDB; // for database interactions
+    static { // to handel Checked exceptions
+        try{
+            usersDB = new UsersDB();
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     // rate limit checks
     private int messageCountForRateLimit = 0;
@@ -70,16 +79,58 @@ public class ClientHandler implements Runnable, ChatParticipant {
         try{
             this.in = new BufferedReader(new java.io.InputStreamReader(socket.getInputStream(), "UTF-8"));
             this.out = new BufferedWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), "UTF-8"));
+
+            int choice = Integer.parseInt(this.in.readLine());
             this.username = in.readLine();
-            clients.add(this);
+
+            if (choice == 1) {
+                String password = this.in.readLine();
+                if (authenticate(username, password)) {
+                    out.write("AUTH_SUCCESS\n");
+                    out.flush();
+                    clients.add(this);
+                } else {
+                    out.write("AUTH_FAILURE\n");
+                    out.flush();
+                    closeConnections(socket, out, in);
+                    sendToClient("Authentication failed. Please check your username and password.");
+                }
+            }
+
+            else if (choice == 2) {
+                String password = this.in.readLine();
+                if (userRegister(username, password, in.readLine())) {
+                    out.write("REG_SUCCESS\n");
+                    out.flush();
+                    clients.add(this);
+                } else {
+                    out.write("REG_FAILURE\n");
+                    out.flush();
+                    closeConnections(socket, out, in);
+                    sendToClient("Registration failed. Please check your username and password.");
+                }
+            }
 
             statusService.userJoined(username);
             friendService.initUser(username);
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             closeConnections(socket, out, in);
-            System.out.println("Error initializing client handler: " + e.getMessage());
+            throw new RuntimeException(e);
         }
+    }
+
+    // DB functions
+    private boolean authenticate(String username, String password) throws SQLException {
+        if (username == null || password == null) return false;
+
+        return usersDB.login(username, password);
+    }
+
+    private boolean userRegister(String username, String password, String email) throws SQLException {
+        if  (username == null || password == null || email == null) return false;
+
+        return usersDB.register(username, email, password);
     }
 
     // -------- getter function ----------
@@ -93,6 +144,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
         return clientIP;
     }
 
+    // --------------------------------------
     /**
      * Sends a message directly to this client only.
      * @param message the message to deliver
@@ -487,5 +539,10 @@ public class ClientHandler implements Runnable, ChatParticipant {
         } catch (IOException e) {
             System.out.println("Error closing connections: " + e.getMessage());
         }
+    }
+
+    // easy access to Server if its Shutting Down
+    public static void closeDB(){
+        usersDB.closeDB_Connection();
     }
 }

@@ -1,6 +1,7 @@
 import db.UsersDB;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.sql.SQLException;
@@ -10,13 +11,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AuthTest {
 
-    private String username;
-    private String password;
-    private String email;
-    private UsersDB users;
+    private static String username;
+    private static String password;
+    private static String email;
+    private static UsersDB users;
 
-    @BeforeEach
-    public void setUp() throws SQLException {
+    @BeforeAll
+    public static void setUp() throws SQLException {
         users = new UsersDB();
         username = "testuser";
         password = "testpassword";
@@ -26,6 +27,10 @@ public class AuthTest {
     @AfterEach
     public void tearDown() throws SQLException {
         users.deleteUser(username);
+    }
+
+    @AfterAll
+    public static void closeDB() throws SQLException {
         users.closeDB_Connection();
     }
 

@@ -19,5 +19,4 @@ target/
 *.png
 
 discord-project-notes.md
-*.properties
-*.db
+src/main/resources/*.properties

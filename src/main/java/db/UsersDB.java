@@ -84,7 +84,6 @@ public class UsersDB {
         return res == 1;
     }
 
-
     public boolean login(String username, String password) throws SQLException {
         String fetch_hashed = "SELECT password FROM users WHERE username = ?";
         PreparedStatement statement = connection.prepareStatement(fetch_hashed);

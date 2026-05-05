@@ -2,6 +2,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import stage3.groupchat.SafeGroupChat;
 import stage3.groupchat.UnsafeGroupChat;
+import stage3.groupchat.interfaces.GroupChatInterfaces;
 
 import java.util.List;
 
@@ -10,19 +11,23 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 public class GroupTest {
 
-    SafeGroupChat safeChat = new SafeGroupChat("TestChat");
-    UnsafeGroupChat unsafeChat = new UnsafeGroupChat("TestChat2");
+    GroupChatInterfaces safeChat = new SafeGroupChat("TestChat");
+    GroupChatInterfaces unsafeChat = new UnsafeGroupChat("TestChat2");
 
-    @Test
-    void test_SafeGroup() throws InterruptedException {
-        Thread [] threads = new Thread[100];
+    private static Thread[] threads;
 
+    @BeforeAll
+    static void init() {
+        threads = new Thread[100];
+    }
+
+    private List<String> test_body(GroupChatInterfaces chat) throws InterruptedException {
         for (int i = 0; i < 100; i++) {
             final  int id = i;
             threads[i] = new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    safeChat.sendMessage(null, "message from thread" + id);
+                    chat.sendMessage(null, "message from thread" + id);
                 }
             });
             threads[i].start();
@@ -32,7 +37,12 @@ public class GroupTest {
             t.join();
         }
         // check the results
-        List<String> history = safeChat.getMessagesHistory();
+        return chat.getMessagesHistory();
+    }
+
+    @Test
+    void test_SafeGroup() throws InterruptedException {
+        List<String> history = test_body(safeChat);
         System.out.println("Message history: " + history.size());
 
         long uniSeq = history.stream()
@@ -46,24 +56,7 @@ public class GroupTest {
 
     @Test
     void test_UnsafeGroup() throws InterruptedException {
-        Thread [] threads = new Thread[100];
-
-        for (int i = 0; i < 100; i++) {
-            final  int id = i;
-            threads[i] = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    unsafeChat.sendMessage(null, "message from thread" + id);
-                }
-            });
-            threads[i].start();
-        }
-
-        for (Thread t : threads){
-            t.join();
-        }
-        // check the results
-        List<String> history = unsafeChat.getMessagesHistory();
+        List<String> history = test_body(unsafeChat);
         System.out.println("Message history: " + history.size());
 
         long uniSeq = history.stream()
@@ -72,7 +65,6 @@ public class GroupTest {
         System.out.println("Unique sequence numbers " + uniSeq);
 
         assertNotEquals(100, uniSeq);
-
     }
 
 }

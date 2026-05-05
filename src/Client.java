@@ -9,7 +9,7 @@ import java.util.Scanner;
 
 public class Client {
 
-    private static final int SERVER_PORT = 8888;
+    private static int SERVER_PORT;
 
     private Socket clientSocket;
     private BufferedWriter out;
@@ -205,8 +205,12 @@ public class Client {
         Scanner scanner = new Scanner(System.in);
 
         //System.out.println("Connecting to server at " + SERVER_IP + ":" + SERVER_PORT + "...");
-        System.out.print("Enter the Server's IP address (e.g., 192.168.1.5): or connect to the localhost");
+        System.out.print("Enter the Server's IP address (e.g., 192.168.1.5): or connect to the localhost\n");
         String serverIp = scanner.nextLine();
+
+        System.out.print("Enter the Server's port: ");
+        SERVER_PORT = scanner.nextInt();
+        scanner.nextLine(); // consume the newline character
 
         System.out.println("Connecting to server at " + serverIp + ":" + SERVER_PORT + "...");
         Socket socket = new Socket(serverIp, SERVER_PORT);

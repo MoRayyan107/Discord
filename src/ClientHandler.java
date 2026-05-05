@@ -1,5 +1,6 @@
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.sql.SQLException;
@@ -7,6 +8,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 // interfaces
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import stage3.status.StatusInterface;
 import stage3.friend.FriendInterface;
 import stage3.messagehistory.MessageHistory;
@@ -41,6 +44,18 @@ public class ClientHandler implements Runnable, ChatParticipant {
         try{
             usersDB = new UsersDB();
         } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Kafkan producere
+    private static final KafkaProducer<String, String> producer;
+    static Properties props = new Properties();
+    static {
+        try{
+            props.load(new FileInputStream("producer.properties"));
+            producer = new KafkaProducer<>(props);
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -132,6 +147,17 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
         return usersDB.register(username, email, password);
     }
+
+    // Kafka producer for messages
+    public void sendMessageToKafka(String topic, String message){
+        ProducerRecord<String, String> record = new ProducerRecord<>(topic, message);
+        producer.send(record, (metadata, exception) -> {
+            if (exception != null) {
+                System.err.println("Error sending message to Kafka: " + exception.getMessage());
+            }
+        });
+    }
+
 
     // -------- getter function ----------
     @Override
@@ -353,6 +379,10 @@ public class ClientHandler implements Runnable, ChatParticipant {
         }
 
         messageCountForRateLimit++;
+
+        String grpNAme = (currentGroup == null) ? "" : currentGroup;
+        String payloadTosend = Server.getServerID() + "#" + username + ":" + grpNAme + ":" + msgToSend;
+        sendMessageToKafka("messages", payloadTosend); // send to kafka for processing and storing in DB
         broadcastMessage(msgToSend);
     }
 
@@ -376,6 +406,27 @@ public class ClientHandler implements Runnable, ChatParticipant {
                 }
             }
         }
+    }
+
+    public static void deliverKafkaMessage(String fullMessage) {
+        String[] divided = fullMessage.split(":",3);
+        String username = divided[0];
+        String groupName = divided[1];
+        String message = divided[2];
+
+        if (groupName == null || groupName.isEmpty()) return;
+
+        GroupChatInterfaces chat = groupChats.get(groupName);
+        ChatParticipant sender = null;
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client.getUsername().equals(username)) {
+                    sender = client;
+                    break;
+                }
+            }
+        }
+        if (chat != null) chat.sendMessage(sender, message);
     }
 
     /**

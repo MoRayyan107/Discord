@@ -13,7 +13,6 @@ public class UsersDB {
     public UsersDB() throws SQLException {
         connection = connectDB();
         createTable(connection);
-
     }
 
     private Connection connectDB() throws SQLException {
@@ -30,7 +29,7 @@ public class UsersDB {
                 ")";
 
         PreparedStatement statement = conn.prepareStatement(query);
-        statement.execute();
+        statement.executeUpdate();
     }
 
     public boolean register(String username, String email, String password) throws SQLException {

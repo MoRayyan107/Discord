@@ -18,6 +18,9 @@ public class AuthTest {
     @BeforeEach
     public void setUp() throws SQLException {
         users = new UsersDB();
+        username = "testuser";
+        password = "testpassword";
+        email = "testemail";
     }
 
     @AfterEach
@@ -29,10 +32,6 @@ public class AuthTest {
     @Test
     public void AuthTest_Pass() throws SQLException {
         try{
-            username = "testuser";
-            password = "testpass";
-            email = "email@smt";
-
             users.register(username, email, password);
 
             assertTrue(users.login(username, password)) ;
@@ -46,9 +45,6 @@ public class AuthTest {
     @Test
     public void AuthTest_Fail_NoRegister() throws SQLException{
         try {
-            username = "testuser";
-            password = "testpass";
-
             // do not register anmd try login
             assertFalse(users.login(username, "wrongpass")) ;
         } catch (Exception e) {
@@ -60,9 +56,6 @@ public class AuthTest {
     @Test
     public void AuthTest_Fail_withRegistering() throws SQLException {
         try{
-            username = "testuser";
-            password = "testpass";
-            email = "email@smt";
 
             users.register(username, email, password);
 

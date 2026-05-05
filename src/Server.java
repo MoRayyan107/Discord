@@ -1,20 +1,37 @@
 import db.UsersDB;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class Server {
 
-    private static final int PORT = 8888;
+    private static int PORT;
 
     // Pool count for thread management
     private static final int THREAD_POOL_COUNT  = 200;
     private final ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_POOL_COUNT);
+    private static final String SERVER_ID = UUID.randomUUID().toString();
+
+    private static final KafkaConsumer<String, String> consumer;
+    static {
+        try {
+            Properties props = new Properties();
+            props.load(new FileInputStream("consumer.properties"));
+            consumer = new KafkaConsumer<>(props);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to load Kafka configuration: " + e.getMessage());
+        }
+    }
 
     /**
      * This gets the Servers IP address and prints it to the console so that the user can connect to it
@@ -50,6 +67,8 @@ public class Server {
                 }
             }));
 
+            startKafkaConsumer();
+
             ServerSocket serverSocket = new ServerSocket(PORT);
             System.out.println("Server Running on port: " + PORT);
 
@@ -70,6 +89,39 @@ public class Server {
         }
     }
 
+    private void startKafkaConsumer() {
+        new Thread(() -> {
+            consumer.subscribe(Collections.singletonList("messages"));
+
+            while (true) {
+                try{
+                    consumer.poll(Duration.ofSeconds(10)).forEach(record -> {
+                        String[] message = record.value().split("#", 2);
+                        if (message.length < 2){
+                            System.err.println("Malformed Data fro Kafka Consumer");
+                            return;
+                        }
+                        String senderServer =  message[0];
+                        String chunk = message[1];
+
+                        // if the server ID is same dont use Kafka
+                        // else there will be 2x the same message delivery
+                        if (!senderServer.equals(SERVER_ID))  ClientHandler.deliverKafkaMessage(chunk);
+
+                        System.out.println("Received message from Kafka: " + message);
+                    });
+                } catch (Exception e) {
+                    System.out.println("Kafka consumer error: " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
+    // getter for server ID
+    public static String getServerID(){
+        return SERVER_ID;
+    }
+
     /**
      * Ik its a lot to take but look at the comments to understand what is happening
      * This is a simple server that listens for client connections and echoes back messages
@@ -78,6 +130,7 @@ public class Server {
     public static void main(String[] args) {
         System.out.println("Starting the Server...");
 
+        PORT = (args.length > 0) ? Integer.parseInt(args[0]) : 8080;
         try {
             Server server = new Server();
             server.startServer();

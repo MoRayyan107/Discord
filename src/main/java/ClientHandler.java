@@ -1,7 +1,4 @@
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
 import java.sql.SQLException;
 import java.util.*;
@@ -16,12 +13,14 @@ import stage3.messagehistory.MessageHistory;
 import stage3.groupchat.interfaces.ChatParticipant;
 import stage3.groupchat.interfaces.GroupChatInterfaces;
 
+// imp stuff
+import db.UsersDB;
+
 // Safe and Unsafe Imports
 import stage3.status.SafeStatus;  // SAFE VERSION OF STATUS
 import stage3.friend.SafeFriendManager;
 import stage3.groupchat.SafeGroupChat;
 import stage3.messagehistory.SafeMessageHistory;
-import db.UsersDB;
 
 /**
  * Handles each connected client on its own thread.
@@ -50,10 +49,11 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
     // Kafkan producere
     private static final KafkaProducer<String, String> producer;
-    static Properties props = new Properties();
     static {
         try{
-            props.load(new FileInputStream("producer.properties"));
+            Properties props = new Properties();
+            InputStream propertiesStream = ClientHandler.class.getClassLoader().getResourceAsStream("consumer.properties");
+            props.load(propertiesStream);
             producer = new KafkaProducer<>(props);
         } catch (Exception e) {
             throw new RuntimeException(e);

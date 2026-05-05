@@ -1,4 +1,3 @@
-import db.UsersDB;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
 import java.io.*;
@@ -13,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+
 public class Server {
 
     private static int PORT;
@@ -26,7 +26,10 @@ public class Server {
     static {
         try {
             Properties props = new Properties();
-            props.load(new FileInputStream("consumer.properties"));
+            InputStream propertiesStream = Server.class.getClassLoader().getResourceAsStream("consumer.properties");
+            if (propertiesStream == null) throw new RuntimeException("consumer.properties not found");
+
+            props.load(propertiesStream);
             consumer = new KafkaConsumer<>(props);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load Kafka configuration: " + e.getMessage());

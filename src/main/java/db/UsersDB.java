@@ -2,31 +2,46 @@ package db;
 
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.io.IOException;
 import java.sql.*;
+import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class UsersDB {
 
     private final Connection connection;
+    private final Properties prop;
 
     public UsersDB() throws SQLException {
+        prop = new Properties();
+        try{
+            prop.load(getClass().getClassLoader().getResourceAsStream("db.properties"));
+        } catch (IOException ex) {
+            Logger.getLogger(UsersDB.class.getName()).log(Level.SEVERE, null, ex);
+            throw new IllegalStateException(ex);
+        }
+
         connection = connectDB();
         createTable(connection);
     }
 
+
     private Connection connectDB() throws SQLException {
-        Connection conn = DriverManager.getConnection("jdbc:sqlite:chat.db");
-        return conn;
+        String url = prop.getProperty("db.url");
+        String user = prop.getProperty("db.user");
+        String password = prop.getProperty("db.password");
+
+        return DriverManager.getConnection(url, user, password);
     }
 
     private void createTable(Connection conn) throws SQLException {
-        String query = "CREATE TABLE IF NOT EXISTS users (" +
-                "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                "email TEXT NOT NULL," +
-                "username TEXT UNIQUE NOT NULL," +
-                "password TEXT NOT NULL" +
-                ")";
+        String query = "CREATE TABLE IF NOT EXISTS USERS (\n" +
+                "    id SERIAL PRIMARY KEY,\n" +
+                "    username VARCHAR(255) UNIQUE NOT NULL,\n" +
+                "    email VARCHAR(255) UNIQUE NOT NULL,\n" +
+                "    password VARCHAR(255) NOT NULL\n" +
+                ");";
 
         PreparedStatement statement = conn.prepareStatement(query);
         statement.executeUpdate();
@@ -53,9 +68,8 @@ public class UsersDB {
         statement.setString(1, username);
         ResultSet res = statement.executeQuery();
 
-        if (!res.next()) {
-            return false;
-        }
+        if (!res.next()) return false;
+
         String hashedPWD = res.getString("password");
 
         return  BCrypt.checkpw(password, hashedPWD);

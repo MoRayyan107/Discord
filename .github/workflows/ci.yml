@@ -9,13 +9,41 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # 1. Start a Postgres container inside the CI runner
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: DiscordApp
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        # Wait for postgres to be "ready" before starting tests
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: "17"
           cache: "maven"
+
+      # 2. Manually create the missing db.properties file for the tests
+      - name: Create db.properties
+        run: |
+          mkdir -p src/main/resources
+          echo "db.url=jdbc:postgresql://localhost:5432/test_db" > src/main/resources/db.properties
+          echo "db.username=temp_user" >> src/main/resources/db.properties
+          echo "db.password=password" >> src/main/resources/db.properties
+
       - name: Run tests
         run: mvn -B test

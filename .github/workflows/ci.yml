@@ -42,8 +42,11 @@ jobs:
         run: |
           mkdir -p src/main/resources
           echo "db.url=jdbc:postgresql://localhost:5432/discord_app_test_db" > src/main/resources/db.properties
-          echo "db.username=temp_user" >> src/main/resources/db.properties
+          echo "db.username=postgres" >> src/main/resources/db.properties
           echo "db.password=password" >> src/main/resources/db.properties
+
+      - name: Clenan up and build the project
+        run: mvn -B clean install
 
       - name: Run tests
         run: mvn -B test

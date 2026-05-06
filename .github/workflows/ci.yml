@@ -15,7 +15,7 @@ jobs:
       postgres:
         image: postgres:latest
         env:
-          POSTGRES_DB: DiscordApp
+          POSTGRES_DB: discord_app_test_db
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
         ports:
@@ -41,7 +41,7 @@ jobs:
       - name: Create db.properties
         run: |
           mkdir -p src/main/resources
-          echo "db.url=jdbc:postgresql://localhost:5432/test_db" > src/main/resources/db.properties
+          echo "db.url=jdbc:postgresql://localhost:5432/discord_app_test_db" > src/main/resources/db.properties
           echo "db.username=temp_user" >> src/main/resources/db.properties
           echo "db.password=password" >> src/main/resources/db.properties
 

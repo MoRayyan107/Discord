@@ -27,8 +27,6 @@ public class AuthTest {
         users.closeDB_Connection();
     }
 
-
-
     @Test
     public void AuthTest_Pass() throws SQLException {
         try{

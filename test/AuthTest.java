@@ -1,4 +1,4 @@
-import db.UsersDB;
+import manager.UsersDB;
 import org.junit.jupiter.api.*;
 
 import java.sql.SQLException;

@@ -5,6 +5,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Properties;
 import java.util.UUID;
@@ -30,6 +31,7 @@ public class Server {
             if (propertiesStream == null) throw new RuntimeException("consumer.properties not found");
 
             props.load(propertiesStream);
+            props.put("group.id", "server-group-" + SERVER_ID); // Unique group ID for each server instance
             consumer = new KafkaConsumer<>(props);
         } catch (IOException e) {
             throw new RuntimeException("Failed to load Kafka configuration: " + e.getMessage());
@@ -77,6 +79,7 @@ public class Server {
 
             System.out.println("--------------------------------------------------");
             System.out.println("Please connect to this IP: " + getIp());
+            System.out.println("Current Server ID: " + SERVER_ID);
             System.out.println("--------------------------------------------------");
 
             while (true) {
@@ -110,8 +113,7 @@ public class Server {
                         // if the server ID is same dont use Kafka
                         // else there will be 2x the same message delivery
                         if (!senderServer.equals(SERVER_ID))  ClientHandler.deliverKafkaMessage(chunk);
-
-                        System.out.println("Received message from Kafka: " + message);
+                        System.out.println("Received message from Kafka: " + Arrays.toString(message));
                     });
                 } catch (Exception e) {
                     System.out.println("Kafka consumer error: " + e.getMessage());

@@ -104,7 +104,7 @@ public class SafeGroupChat implements GroupChatInterfaces {
         try {
             the_lock.lock();
             actualMsg = senderName + ": " + message;
-            format = sequenceNumber.getAndIncrement() + "[" + name + "] " + senderName + ": " + message;
+            format = sequenceNumber.getAndIncrement() + "[" + name + "] " + actualMsg;
             messageHistory.add(format);
         } finally {
             the_lock.unlock();
@@ -121,6 +121,7 @@ public class SafeGroupChat implements GroupChatInterfaces {
     @Override
     public void broadcast(String senderUsername, String message) {
         List <ChatParticipant> membersCopy;
+        String fullMsg = senderUsername + ": " + message;
         try{
             the_lock.lock();
             membersCopy = new ArrayList<>(members);
@@ -129,7 +130,7 @@ public class SafeGroupChat implements GroupChatInterfaces {
         }
         for (ChatParticipant member : membersCopy) {
             if (!member.getUsername().equals(senderUsername)) {
-                member.sendToClient(message);
+                member.sendToClient(fullMsg);
             }
         }
     }

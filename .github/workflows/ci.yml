@@ -22,7 +22,7 @@ jobs:
           - 5432:5432
         # Wait for postgres to be "ready" before starting tests
         options: >-
-          --health-cmd pg_isready
+          --health-cmd pg_ready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -48,5 +48,5 @@ jobs:
       - name: Clenan up and build the project
         run: mvn -B clean install
 
-      - name: Run tests
-        run: mvn -B test
+      - name: Remove db.properties
+        run: rm src/main/resources/db.properties

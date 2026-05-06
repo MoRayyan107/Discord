@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 // interfaces
+import manager.RedisManager;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import stage3.status.StatusInterface;
@@ -14,7 +15,7 @@ import stage3.groupchat.interfaces.ChatParticipant;
 import stage3.groupchat.interfaces.GroupChatInterfaces;
 
 // imp stuff
-import db.UsersDB;
+import manager.UsersDB;
 
 // Safe and Unsafe Imports
 import stage3.status.SafeStatus;  // SAFE VERSION OF STATUS
@@ -55,6 +56,16 @@ public class ClientHandler implements Runnable, ChatParticipant {
             InputStream propertiesStream = ClientHandler.class.getClassLoader().getResourceAsStream("producer.properties");
             props.load(propertiesStream);
             producer = new KafkaProducer<>(props);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Redis static block
+    private static final RedisManager redisManager;
+    static{
+        try{
+            redisManager = new RedisManager();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -224,11 +235,11 @@ public class ClientHandler implements Runnable, ChatParticipant {
      */
     private void handleCreate(String groupName) {
         groupChats.putIfAbsent(groupName, new SafeGroupChat(groupName));
-        // groupChats.putIfAbsent(groupName, new UnsafeGroupChat(groupName)); // UNSAFE VERSION COMMENT OUT ONLY FOR TESTING
         this.currentGroup = groupName;
 
         GroupChatInterfaces chat = groupChats.get(groupName);
         chat.addMember(this);
+        redisManager.createGroup(groupName, Server.getServerID());
         sendToClient("SERVER: Group '" + groupName + "' created.");
     }
 
@@ -240,20 +251,23 @@ public class ClientHandler implements Runnable, ChatParticipant {
      */
     private void handleJoin(String groupName) {
         GroupChatInterfaces chat = groupChats.get(groupName);
-        if (chat == null) {
-            sendToClient("SERVER: Group '" + groupName + "' not found.");
-            return;
-        }
-        this.currentGroup = groupName; // we wanna remember the users group
-        chat.addMember(this);
-        sendToClient("SERVER: You joined '" + groupName + "'.");
+        if (chat != null){
+            this.currentGroup = groupName; // we wanna remember the users group
+            chat.addMember(this);
+            sendToClient("SERVER: You joined '" + groupName + "'.");
 
-        List<String> history = chat.getMessagesHistory();
-        if (!history.isEmpty()) {
-            sendToClient("SERVER: --- " + history.size() + " previous message(s) ---");
-            for (String msg : history) {
-                sendToClient(msg);
+            List<String> history = chat.getMessagesHistory();
+            if (!history.isEmpty()) {
+                sendToClient("SERVER: --- " + history.size() + " previous message(s) ---");
+                for (String msg : history) {
+                    sendToClient(msg);
+                }
             }
+        } else if (redisManager.joinGroup(groupName, username, Server.getServerID())) {
+            this.currentGroup = groupName;
+            sendToClient("SERVER: Joined '" + groupName + "'.");
+        } else {
+            sendToClient("SERVER: Group '" + groupName + "' not found.");
         }
     }
 
@@ -287,6 +301,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
             if (chat != null) {
                 chat.removeMember(this);
             }
+            redisManager.leaveGroup(currentGroup, username);
             consoleDisplay("You left the group '" + currentGroup + "'.");
             currentGroup = null;
         } else{
@@ -380,9 +395,13 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
         messageCountForRateLimit++;
 
-        String grpNAme = (currentGroup == null) ? "" : currentGroup;
-        String payloadTosend = Server.getServerID() + "#" + username + ":" + grpNAme + ":" + msgToSend;
-        sendMessageToKafka("messages", payloadTosend); // send to kafka for processing and storing in DB
+        String grpName = (currentGroup == null) ? "" : currentGroup;
+        String payloadTosend = Server.getServerID() + "#" + username + ":" + grpName + ":" + msgToSend;
+
+        // so here we check if thers any other users with diff server if yes then use this
+        if (redisManager.hasServerMembers(grpName, Server.getServerID()))
+            sendMessageToKafka("messages", payloadTosend);
+
         broadcastMessage(msgToSend);
     }
 
@@ -392,7 +411,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
             if (chat != null) {
                 chat.sendMessage(this, message);
             } else {
-                currentGroup = null; // means that the group has either been deleted or youve kicked out
+                if (!redisManager.groupExists(currentGroup)) currentGroup=null;
             }
         } else {
             // send message ii general chat if that user has not joined the group
@@ -410,7 +429,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
     public static void deliverKafkaMessage(String fullMessage) {
         String[] divided = fullMessage.split(":",3);
-        String username = divided[0];
+        String senderUsername = divided[0];
         String groupName = divided[1];
         String message = divided[2];
 
@@ -420,13 +439,25 @@ public class ClientHandler implements Runnable, ChatParticipant {
         ChatParticipant sender = null;
         synchronized (clients) {
             for (ClientHandler client : clients) {
-                if (client.getUsername().equals(username)) {
+                if (client.getUsername().equals(senderUsername)) {
                     sender = client;
                     break;
                 }
             }
         }
-        if (chat != null) chat.sendMessage(sender, message);
+        if (chat != null &&  sender != null) {
+            chat.sendMessage(sender, message);
+        } else{
+            // this is when if the grp isnt local but in redis and we need to send the message to the local clients in that group
+            synchronized (clients) {
+                for (ClientHandler client : clients) {
+                    if (groupName.equals(client.currentGroup) && !client.getUsername().equals(senderUsername)) {
+                        client.sendToClient(senderUsername + ": " + message);
+                    }
+                }
+            }
+        }
+        System.out.println("Delivered Kafka message to group '" + groupName + "by: " + senderUsername);
     }
 
     /**

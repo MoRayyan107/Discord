@@ -54,9 +54,9 @@ public class RedisManager {
         return jedis.exists("group:"+groupName+":serverid");
     }
 
-    public boolean hasServerMembers(String groupName, String ServerID){
+    public boolean isGroupCrossServer(String groupName, String ServerID){
         if (!groupExists(groupName)) return false;
         return jedis.smembers("group:"+groupName+":members").stream().
-                anyMatch(member -> member.endsWith(":"+ServerID));
+                anyMatch(member -> !member.endsWith(":"+ServerID));
     }
 }

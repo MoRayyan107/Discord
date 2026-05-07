@@ -399,7 +399,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
         String payloadTosend = Server.getServerID() + "#" + username + ":" + grpName + ":" + msgToSend;
 
         // so here we check if thers any other users with diff server if yes then use this
-        if (redisManager.hasServerMembers(grpName, Server.getServerID()))
+        if (redisManager.isGroupCrossServer(grpName, Server.getServerID()))
             sendMessageToKafka("messages", payloadTosend);
 
         broadcastMessage(msgToSend);

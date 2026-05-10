@@ -41,7 +41,7 @@ jobs:
 
       # Kafka Container (KRaft mode)
       kafka:
-        image: bitnami/kafka:latest
+        image: bitnami/kafka:kafka:3.7.0
         ports:
           - 9092:9092
         env:
@@ -75,8 +75,8 @@ jobs:
 
       - name: Create Kafka Topics
         run: |
-          docker run --rm --network host bitnami/kafka:latest kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic messages
-          docker run --rm --network host bitnami/kafka:latest kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic direct_message
+              docker run --rm --network host bitnami/kafka:3.7.0 kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic messages
+              docker run --rm --network host bitnami/kafka:3.7.0 kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic direct_message
 
       - name: Generate Properties Files
         run: |

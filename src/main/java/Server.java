@@ -97,23 +97,38 @@ public class Server {
 
     private void startKafkaConsumer() {
         new Thread(() -> {
-            consumer.subscribe(Collections.singletonList("messages"));
+            consumer.subscribe(Arrays.asList("messages","direct_message")); // subscribe to both topics
 
             while (true) {
                 try{
                     consumer.poll(Duration.ofSeconds(10)).forEach(record -> {
-                        String[] message = record.value().split("#", 2);
-                        if (message.length < 2){
-                            System.err.println("Malformed Data fro Kafka Consumer");
-                            return;
-                        }
-                        String senderServer =  message[0];
-                        String chunk = message[1];
+                        // receives -> ServerId#usernam:groupName:Message (if group messaging)
+                        //          -> userA:userB:Message (if private messaging)
 
-                        // if the server ID is same dont use Kafka
-                        // else there will be 2x the same message delivery
-                        if (!senderServer.equals(SERVER_ID))  ClientHandler.deliverKafkaMessage(chunk);
-                        System.out.println("Received message from Kafka: " + Arrays.toString(message));
+                        String topic = record.topic(); // determine which one is DM and GRP mesaging
+                        String value = record.value();
+
+                        if (topic.equals("direct_message")) {
+                            System.out.println("Received direct message from Kafka: " + record.value()); // DEBUG
+                            ClientHandler.deliverLKafkaMessageDM(value);
+                        }
+
+                        else if (topic.equals("messages")) {
+                            System.out.println("Received group message from Kafka: " + record.value()); // DEBUG
+                            String[] values =  value.split("#", 2);
+                            if (values.length < 2) {
+                                System.err.println("Malformed Data fro Kafka Consumer");
+                                return;
+                            }
+
+                            String sender = values[0];
+                            String messageChunk = values[1];
+
+                            // if the server ID is same dont use Kafka
+                            // else there will be 2x the same message delivery
+                            if (!sender.equals(SERVER_ID))  ClientHandler.deliverKafkaMessageGroup(messageChunk);
+                            System.out.println("Received message from Kafka: " + Arrays.toString(values));
+                        }
                     });
                 } catch (Exception e) {
                     System.out.println("Kafka consumer error: " + e.getMessage());

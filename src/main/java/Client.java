@@ -204,7 +204,6 @@ public class Client {
         System.out.print("Enter your username: ");
         Scanner scanner = new Scanner(System.in);
 
-        //System.out.println("Connecting to server at " + SERVER_IP + ":" + SERVER_PORT + "...");
         System.out.print("Enter the Server's IP address (e.g., 192.168.1.5): or connect to the localhost\n");
         String serverIp = scanner.nextLine();
 

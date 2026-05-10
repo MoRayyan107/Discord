@@ -20,3 +20,7 @@ target/
 
 discord-project-notes.md
 src/main/resources/*.properties
+*.json
+dump.rdb
+graphify-out
+.graphify_python

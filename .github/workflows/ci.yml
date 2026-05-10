@@ -47,13 +47,13 @@ jobs:
         env:
           KAFKA_CFG_NODE_ID: 0
           KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@localhost:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
           KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-          KAFKA_CFG_LISTENERS: PLAINTEXT://:9093,CONTROLLER://:9094,EXTERNAL://:0.0.0.0:9092
-          KAFKA_CFG_ADVERTISED_LISTENERS: EXTERNAL://localhost:9092
-          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
           KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@127.0.0.1:9094
-          KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
+          ALLOW_PLAINTEXT_LISTENER: "yes"
 
     steps:
       - uses: actions/checkout@v4
@@ -65,12 +65,11 @@ jobs:
           java-version: "17"
           cache: "maven"
 
-      - name: Wait for Kafka to be ready
+      - name: Wait for Kafka
         run: |
-          echo "Waiting for Kafka to accept connections..."
-          while ! nc -z localhost 9092; do   
-            sleep 1
-          done
+          echo "Waiting for Kafka..."
+          # Timeout after 60 seconds so it doesn't hang forever
+          timeout 60s bash -c 'until nc -z localhost 9092; do sleep 2; echo "Still waiting..."; done'
           echo "Kafka is up!"
 
       - name: Create Kafka Topics

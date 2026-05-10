@@ -1,0 +1,19 @@
+## redis.properties
+redis.host=localhost
+redis.port={port number}
+
+## consumer.properties
+bootstrap.servers=localhost:{port number}
+group.id=group_id
+key.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+value.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+
+## producer.properties
+bootstrap.servers=localhost:{port number}
+key.serializer=org.apache.kafka.common.serialization.StringSerializer
+value.serializer=org.apache.kafka.common.serialization.StringSerializer
+
+# db.properties
+db.url=jdbc:postgresql://localhost:3306/{database name}
+db.username={username}
+db.password={password}

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "DM_implement" ]
   pull_request:
     branches: [ "main", "master" ]
 
@@ -10,8 +10,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # 1. Start a Postgres container inside the CI runner
+    # 1. Start Services container inside the CI runner
     services:
+
+      ## Postgress Container
       postgres:
         image: postgres:latest
         env:
@@ -20,12 +22,38 @@ jobs:
           POSTGRES_PASSWORD: password
         ports:
           - 5432:5432
-        # Wait for postgres to be "ready" before starting tests
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
+      # Redis Container
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Kafka Container (KRaft mode)
+      kafka:
+        image: bitnamilegacy/kafka:3.7.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_CFG_NODE_ID: 0
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@localhost:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          ALLOW_PLAINTEXT_LISTENER: "yes"
 
     steps:
       - uses: actions/checkout@v4
@@ -37,16 +65,47 @@ jobs:
           java-version: "17"
           cache: "maven"
 
-      # 2. Manually create the missing db.properties file for the tests
-      - name: Create db.properties
+      - name: Wait for Kafka
+        run: |
+          echo "Waiting for Kafka..."
+          # Timeout after 60 seconds so it doesn't hang forever
+          timeout 60s bash -c 'until nc -z localhost 9092; do sleep 2; echo "Still waiting..."; done'
+          echo "Kafka is up!"
+
+      - name: Create Kafka Topics
+        run: |
+              docker run --rm --network host bitnamilegacy/kafka:3.7.0 kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic messages
+              docker run --rm --network host bitnamilegacy/kafka:3.7.0 kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1 --topic direct_message
+
+      - name: Generate Properties Files
         run: |
           mkdir -p src/main/resources
-          echo "db.url=jdbc:postgresql://localhost:5432/discord_app_test_db" > src/main/resources/db.properties
-          echo "db.username=postgres" >> src/main/resources/db.properties
-          echo "db.password=password" >> src/main/resources/db.properties
+          
+          cat <<EOF > src/main/resources/db.properties
+          db.url=jdbc:postgresql://localhost:5432/discord_app_test_db
+          db.username=postgres
+          db.password=password
+          EOF
+          
+          cat <<EOF > src/main/resources/producer.properties
+          bootstrap.servers=localhost:9092
+          key.serializer=org.apache.kafka.common.serialization.StringSerializer
+          value.serializer=org.apache.kafka.common.serialization.StringSerializer
+          EOF
+          
+          cat <<EOF > src/main/resources/consumer.properties
+          bootstrap.servers=localhost:9092
+          group.id=test-group
+          key.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+          value.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+          EOF
+          
+          cat <<EOF > src/main/resources/redis.properties
+          redis.host=localhost
+          redis.port=6379
+          redis.maxTotal=10
+          EOF
 
-      - name: Clenan up and build the project
+      # 5. Run the actual tests
+      - name: Clean up and build the project (Runs Tests)
         run: mvn -B clean install
-
-      - name: Remove db.properties
-        run: rm src/main/resources/db.properties

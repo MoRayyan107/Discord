@@ -8,6 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import manager.RedisManager;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import stage3.dm.DirectMessageInterface;
+import stage3.dm.DirectServerMessage;
 import stage3.status.StatusInterface;
 import stage3.friend.FriendInterface;
 import stage3.messagehistory.MessageHistory;
@@ -35,7 +37,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private Socket socket;
     private BufferedReader in;
     private BufferedWriter out;
-    private final String username;
+    private String username;
     private final String clientIP;
 
     // DB initialising
@@ -85,11 +87,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private static final StatusInterface statusService = new SafeStatus();
     private static final MessageHistory messageHistory = new SafeMessageHistory();
     private static final FriendInterface friendService = new SafeFriendManager();
+    private static final DirectMessageInterface directMessageService = new DirectServerMessage();
 
-    // UNSAFE VERSION CAN BE COMMENTED OUT LATER
-    // private static final StatusInterface statusService = new UnsafeStatus();
-    // private static final MessageHistory messageHistory = new UnsafeMessageHistory();
-    // private static final FriendInterface friendService = new UnsafeFriendManager();
 
     /**
      * Makes a new Client object for each client thats connected to the server, and adds it to the clients list
@@ -115,11 +114,13 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     out.write("AUTH_SUCCESS\n");
                     out.flush();
                     clients.add(this);
+                    statusService.userJoined(username);
+                    friendService.initUser(username);
                 } else {
                     out.write("AUTH_FAILURE\n");
                     out.flush();
-                    closeConnections(socket, out, in);
                     sendToClient("Authentication failed. Please check your username and password.");
+                    closeConnections(socket, out, in);
                 }
             }
 
@@ -129,23 +130,27 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     out.write("REG_SUCCESS\n");
                     out.flush();
                     clients.add(this);
+
+                    statusService.userJoined(username);
+                    friendService.initUser(username);
                 } else {
                     out.write("REG_FAILURE\n");
                     out.flush();
-                    closeConnections(socket, out, in);
                     sendToClient("Registration failed. Please check your username and password.");
+                    closeConnections(socket, out, in);
                 }
             }
 
-            statusService.userJoined(username);
-            friendService.initUser(username);
+            else{
+                sendToClient("Invalid choice. Connection closed.");
+                closeConnections(socket, out, in);
+            }
 
         } catch (Exception e) {
+            sendToClient("An error occurred during authentication/registration: " + e.getMessage());
             closeConnections(socket, out, in);
-            throw new RuntimeException(e);
         }
     }
-
     // DB functions
     private boolean authenticate(String username, String password) throws SQLException {
         if (username == null || password == null) return false;
@@ -236,21 +241,19 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private void handleCreate(String groupName) {
         groupChats.putIfAbsent(groupName, new SafeGroupChat(groupName));
         this.currentGroup = groupName;
+        String ServerID = Server.getServerID();
 
         GroupChatInterfaces chat = groupChats.get(groupName);
         chat.addMember(this);
-        redisManager.createGroup(groupName, Server.getServerID());
+        redisManager.createGroup(groupName, ServerID);
+        redisManager.joinGroup(groupName, username, ServerID);
         sendToClient("SERVER: Group '" + groupName + "' created.");
     }
 
-    /**
-     * This is a helper function to handel Joining a Group chat,
-     * Checks if the Group exists and proceeds to join, if not it sends an error message to the client
-     *
-     * @param groupName the name of the Group to join
-     */
+
     private void handleJoin(String groupName) {
         GroupChatInterfaces chat = groupChats.get(groupName);
+
         if (chat != null){
             this.currentGroup = groupName; // we wanna remember the users group
             chat.addMember(this);
@@ -263,7 +266,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     sendToClient(msg);
                 }
             }
-        } else if (redisManager.joinGroup(groupName, username, Server.getServerID())) {
+        } else if (redisManager.groupExists(groupName)) {
+            redisManager.joinGroup(groupName, username, Server.getServerID());
             this.currentGroup = groupName;
             sendToClient("SERVER: Joined '" + groupName + "'.");
         } else {
@@ -301,7 +305,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
             if (chat != null) {
                 chat.removeMember(this);
             }
-            redisManager.leaveGroup(currentGroup, username);
+            String uSerServer = Server.getServerID();
+            redisManager.leaveGroup(currentGroup, username, uSerServer);
             consoleDisplay("You left the group '" + currentGroup + "'.");
             currentGroup = null;
         } else{
@@ -395,11 +400,12 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
         messageCountForRateLimit++;
 
+        // Group message goes -> ServerId#username:groupName:Message
         String grpName = (currentGroup == null) ? "" : currentGroup;
         String payloadTosend = Server.getServerID() + "#" + username + ":" + grpName + ":" + msgToSend;
 
         // so here we check if thers any other users with diff server if yes then use this
-        if (redisManager.isGroupCrossServer(grpName, Server.getServerID()))
+        if (currentGroup != null && redisManager.isGroupCrossServer(grpName, Server.getServerID()))
             sendMessageToKafka("messages", payloadTosend);
 
         broadcastMessage(msgToSend);
@@ -427,38 +433,75 @@ public class ClientHandler implements Runnable, ChatParticipant {
         }
     }
 
-    public static void deliverKafkaMessage(String fullMessage) {
-        String[] divided = fullMessage.split(":",3);
-        String senderUsername = divided[0];
-        String groupName = divided[1];
-        String message = divided[2];
-
-        if (groupName == null || groupName.isEmpty()) return;
-
-        GroupChatInterfaces chat = groupChats.get(groupName);
-        ChatParticipant sender = null;
+    public void handelDM(String receiver, String messageToSend){
+       // first check if the target user is in Senders server
+        ClientHandler target = null;
         synchronized (clients) {
             for (ClientHandler client : clients) {
-                if (client.getUsername().equals(senderUsername)) {
-                    sender = client;
+                if (client.getUsername().equalsIgnoreCase(receiver)) {
+                    target = client;
                     break;
                 }
             }
         }
-        if (chat != null &&  sender != null) {
-            chat.sendMessage(sender, message);
-        } else{
-            // this is when if the grp isnt local but in redis and we need to send the message to the local clients in that group
-            synchronized (clients) {
-                for (ClientHandler client : clients) {
-                    if (groupName.equals(client.currentGroup) && !client.getUsername().equals(senderUsername)) {
-                        client.sendToClient(senderUsername + ": " + message);
-                    }
+        if (target != null) {
+            target.sendToClient("(DM) " + this.username + ": " + messageToSend);
+        } else {
+            // if the user is not in the same server we send the DM through kafka and redis will handle it
+            // no need for server ID, why?, cuz the sender and reciver will be conected
+            // to the same redis instance and the message will be delivered to the reciver server and then to the reciver client
+
+            String payloadToSend = this.username + ":" + receiver + ":" + messageToSend;
+            sendMessageToKafka("direct_message", payloadToSend);
+        }
+    }
+
+    // ----------------------------------------- Kafka Functions --------------------------------------
+
+    public static void deliverLKafkaMessageDM(String chunk){
+        String[] divided = chunk.split(":",3);
+        String sender =  divided[0];
+        String receiver = divided[1];
+        String message = divided[2];
+
+        ClientHandler target = null;
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (client.getUsername().equalsIgnoreCase(receiver)) {
+                    target = client;
+                    break;
+                }
+            }
+        }
+
+        if (!directMessageService.checkIfDirectMessageExists(sender, receiver)) {
+            System.err.println("Direct Message does not exist between " + sender + " and " + receiver);
+            System.out.println("Establishing direct message for " + sender + " and " + receiver);
+            directMessageService.createDirectMessage(sender, receiver);
+        }
+
+        // if theres a connection between useer A and B hen send
+        target.sendToClient("(DM) " + sender + ": " + message);
+    }
+
+    public static void deliverKafkaMessageGroup(String chunk) {
+        String[] divided = chunk.split(":",3);
+        String senderUsername = divided[0];
+        String groupName = divided[1];
+        String message = divided[2];
+
+        // this is when if the grp isnt local but in redis and we need to send the message to the local clients in that group
+        synchronized (clients) {
+            for (ClientHandler client : clients) {
+                if (groupName.equals(client.currentGroup) && !client.getUsername().equals(senderUsername)) {
+                    client.sendToClient(senderUsername + ": " + message);
                 }
             }
         }
         System.out.println("Delivered Kafka message to group '" + groupName + "by: " + senderUsername);
     }
+
+
 
     /**
      * Handles the command prompt by the User,
@@ -468,8 +511,12 @@ public class ClientHandler implements Runnable, ChatParticipant {
      * @param command Command to execute
      */
     public void handleCommands(String command) {
-        String[] args = command.split(" ");
+        String[] args = command.split(" ",3);
+        System.out.println("Args " +  Arrays.toString(args));
         String commandKey = args[0].toLowerCase();
+
+        // args -> [command, [text/group/username, [message]]]] [NOT A list(list(list))) ]
+        //          args[0]         args[1]         args[2]
 
         switch (commandKey) {
             // handles leaving the group function
@@ -481,18 +528,19 @@ public class ClientHandler implements Runnable, ChatParticipant {
             // gets all the available commands
             case "!help":
                 consoleDisplay("Available commands:");
-                consoleDisplay("!quit                     - leave Server");
-                consoleDisplay("!help                     - show commands");
-                consoleDisplay("!status                   - show everyone's status");
-                consoleDisplay("!status <text>            - set your status");
-                consoleDisplay("!friend <username>        - send a friend request to a user");
-                consoleDisplay("!friends                  - list your friends");
-                consoleDisplay("!create <groupName>       - create a group chat");
-                consoleDisplay("!join <groupName>         - join a group chat");
-                consoleDisplay("!sendfile <username>      - send a file to a user");
-                consoleDisplay("!stream <username>        - stream a video to a user");
-                consoleDisplay("!leave                    - leave the current group chat");
-                consoleDisplay("!gm <groupName> <message> - send message to group chat");
+                consoleDisplay("!quit                       - leave Server");
+                consoleDisplay("!help                       - show commands");
+                consoleDisplay("!status                     - show everyone's status");
+                consoleDisplay("!dm <friendName> <message>  - Send a private message to a friend");
+                consoleDisplay("!status <text>              - set your status");
+                consoleDisplay("!friend <username>          - send a friend request to a user");
+                consoleDisplay("!friends                    - list your friends");
+                consoleDisplay("!create <groupName>         - create a group chat");
+                consoleDisplay("!join <groupName>           - join a group chat");
+                consoleDisplay("!sendfile <username>        - send a file to a user");
+                consoleDisplay("!stream <username>          - stream a video to a user");
+                consoleDisplay("!leave                      - leave the current group chat");
+                consoleDisplay("!gm <groupName> <message>   - send message to group chat");
                 break;
 
             // gets the status of all users in the Server and can also change ur own status
@@ -524,6 +572,16 @@ public class ClientHandler implements Runnable, ChatParticipant {
                 consoleDisplay("Your friends: " + friendService.getFriends(username));
                 break;
 
+            // !dm user message
+            case "!dm":
+                if (args.length != 3) {
+                    consoleDisplay("Usage: !dm <friendName> <message>");
+                    return;
+                }
+
+                handelDM(args[1], args[2]);
+                break;
+
             // create sa new group and automatically adds the user to it
             case "!create":
                 if (args.length < 2) {
@@ -552,8 +610,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     consoleDisplay("Usage: !gm <groupName> <message>");
                     return;
                 }
-                // get the whole line of arg[2] we dontr wanna send one word "Hello" form a message "Hello Guys"
-                handleGroupMessage(args[1], command.substring(command.indexOf(args[2])));
+
+                handleGroupMessage(args[1], args[2]);
                 break;
 
             // sends a file such as (pdf, txt, mp4, png, jpg)
@@ -599,6 +657,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
      * Removes the client from the list
      */
     public void removeClient() {
+        if (currentGroup != null) redisManager.leaveGroup(currentGroup, username, Server.getServerID());
+
         clients.remove(this); // removes the current client
         statusService.userLeft(username); // not sure if i should remove user or set them to offline?
         friendService.removeUser(username);

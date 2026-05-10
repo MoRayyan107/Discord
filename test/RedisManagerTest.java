@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class RedisManagerTest {
 
-    RedisManager redis;
+    private RedisManager redis;
     
     private static final String SERVER_A = "serverA";
     private static final String SERVER_B = "serverB";

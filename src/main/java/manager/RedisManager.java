@@ -102,6 +102,25 @@ public class RedisManager {
         }
     }
 
+    // ------------------------------------------- USER-SERVER TRACKING -----------------------------------------------
+    public void setUserServer(String username, String serverID) {
+        try(Jedis jedis = jedisPool.getResource()) {
+            jedis.set("user:" + username + ":server", serverID);
+        }
+    }
+
+    public String getUserServer(String username) {
+        try(Jedis jedis = jedisPool.getResource()) {
+            return jedis.get("user:" + username + ":server");
+        }
+    }
+
+    public void removeUserServer(String username) {
+        try(Jedis jedis = jedisPool.getResource()) {
+            jedis.del("user:" + username + ":server");
+        }
+    }
+
     // ------------------------------------------- DM FUNCTIONS -----------------------------------------------
     // sort the usernames so that we keep one key pair for everyones DM rather than creating duplicate keys for one DM
     // DM key is stored in redis -> dm:userA:userB (sorted by username)

@@ -176,3 +176,6 @@ Mohamed Sharif, Mohammad Rayyan, Russell Hall, Ghassan Shalayel, John Holland, E
 
 **Distributed systems expansion (Phases 4–7):**
 Mohammad Rayyan
+
+## Architectural decisions and implementation details documented in `docs/` folder.
+![cross_server_messaging.png](lib/cross_server_messaging.png)

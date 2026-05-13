@@ -16,7 +16,6 @@ target/
 *.ts
 *.mp4
 *.jpg
-*.png
 
 discord-project-notes.md
 src/main/resources/*.properties

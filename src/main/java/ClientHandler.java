@@ -5,9 +5,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 // interfaces
+import manager.KafkaManager;
 import manager.RedisManager;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stage3.dm.DirectMessageInterface;
 import stage3.dm.DirectServerMessage;
 import stage3.status.StatusInterface;
@@ -40,12 +43,43 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private String username;
     private final String clientIP;
 
+
+    // rate limit checks
+    private int messageCountForRateLimit = 0;
+    private Long lastMessageTime = System.currentTimeMillis();
+
+    // volatile ensures thread safety for each thread for a user group
+    private volatile String currentGroup;
+
+    private static final List<ChatParticipant> clients = Collections.synchronizedList(new ArrayList<>());
+    private static final Map<String, GroupChatInterfaces> groupChats = new ConcurrentHashMap<>();
+
+    // SAFE VERSIONS
+    private static final StatusInterface statusService = new SafeStatus();
+    private static final MessageHistory messageHistory = new SafeMessageHistory();
+    private static final FriendInterface friendService = new SafeFriendManager();
+    private static final DirectMessageInterface directMessageService = new DirectServerMessage();
+
+    // Logger FACTORY
+    private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
+
+    // ---------------------- ALL STATIC INITIALISATION -----------------------------
+
     // DB initialising
     private final static UsersDB usersDB; // for database interactions
     static { // to handel Checked exceptions
         try{
             usersDB = new UsersDB();
         } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static final KafkaManager kafkaManager;
+    static {
+        try{
+            kafkaManager = new KafkaManager(clients, directMessageService);
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -73,23 +107,6 @@ public class ClientHandler implements Runnable, ChatParticipant {
         }
     }
 
-    // rate limit checks
-    private int messageCountForRateLimit = 0;
-    private Long lastMessageTime = System.currentTimeMillis();
-
-    // volatile ensures thread safety for each thread for a user group
-    private volatile String currentGroup;
-
-    private static final List<ClientHandler> clients = Collections.synchronizedList(new ArrayList<>());
-    private static final Map<String, GroupChatInterfaces> groupChats = new ConcurrentHashMap<>();
-
-    // SAFE VERSIONS
-    private static final StatusInterface statusService = new SafeStatus();
-    private static final MessageHistory messageHistory = new SafeMessageHistory();
-    private static final FriendInterface friendService = new SafeFriendManager();
-    private static final DirectMessageInterface directMessageService = new DirectServerMessage();
-
-
     /**
      * Makes a new Client object for each client thats connected to the server, and adds it to the clients list
      * at end it sends the message to server and the connected clients
@@ -114,6 +131,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     out.write("AUTH_SUCCESS\n");
                     out.flush();
                     clients.add(this);
+                    redisManager.setUserServer(username, Server.getServerID());
                     statusService.userJoined(username);
                     friendService.initUser(username);
                 } else {
@@ -130,7 +148,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
                     out.write("REG_SUCCESS\n");
                     out.flush();
                     clients.add(this);
-
+                    redisManager.setUserServer(username, Server.getServerID());
                     statusService.userJoined(username);
                     friendService.initUser(username);
                 } else {
@@ -151,6 +169,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
             closeConnections(socket, out, in);
         }
     }
+
     // DB functions
     private boolean authenticate(String username, String password) throws SQLException {
         if (username == null || password == null) return false;
@@ -164,17 +183,6 @@ public class ClientHandler implements Runnable, ChatParticipant {
         return usersDB.register(username, email, password);
     }
 
-    // Kafka producer for messages
-    public void sendMessageToKafka(String topic, String message){
-        ProducerRecord<String, String> record = new ProducerRecord<>(topic, message);
-        producer.send(record, (metadata, exception) -> {
-            if (exception != null) {
-                System.err.println("Error sending message to Kafka: " + exception.getMessage());
-            }
-        });
-    }
-
-
     // -------- getter function ----------
     @Override
     public String getUsername() {
@@ -186,7 +194,32 @@ public class ClientHandler implements Runnable, ChatParticipant {
         return clientIP;
     }
 
-    // --------------------------------------
+    // can return null
+    @Override
+    public String getCurrentGroup() {
+        return currentGroup;
+    }
+
+    // used for testing
+    public static List<ChatParticipant> getClients() { return clients; }
+
+    // --------------- HELPER FUNCTION ----------------
+    private ChatParticipant getUserFromChat(String targetUsername){
+        ChatParticipant target = null;
+        synchronized (clients) {
+            for (ChatParticipant client : clients) {
+                if (client.getUsername().equalsIgnoreCase(targetUsername)) {
+                    target = client;
+                    break;
+                }
+            }
+        }
+        return target;
+    }
+
+
+
+
     /**
      * Sends a message directly to this client only.
      * @param message the message to deliver
@@ -322,15 +355,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
      * @param targetUsername the user to send file to
      */
     private void handleSendFile( String targetUsername){
-        ClientHandler target = null;
-        synchronized (clients) {
-            for (ClientHandler client : clients) {
-                if (client.getUsername().equalsIgnoreCase(targetUsername)) {
-                    target = client;
-                    break;
-                }
-            }
-        }
+        ChatParticipant target = getUserFromChat(targetUsername);
+
         if(target == null){
             consoleDisplay("User " + targetUsername + " not found.");
             return;
@@ -352,15 +378,8 @@ public class ClientHandler implements Runnable, ChatParticipant {
      * @param targetUsername Sender's username
      */
     private void handleStream(String targetUsername) {
-        ClientHandler target = null;
-        synchronized (clients) {
-            for (ClientHandler client : clients) {
-                if (client.getUsername().equalsIgnoreCase(targetUsername)) {
-                    target = client;
-                    break;
-                }
-            }
-        }
+        ChatParticipant target = getUserFromChat(targetUsername);
+
         if (target == null) {
             consoleDisplay("User " + targetUsername + " not found.");
             return;
@@ -406,7 +425,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
         // so here we check if thers any other users with diff server if yes then use this
         if (currentGroup != null && redisManager.isGroupCrossServer(grpName, Server.getServerID()))
-            sendMessageToKafka("messages", payloadTosend);
+            kafkaManager.sendMessageToKafka("messages", payloadTosend);
 
         broadcastMessage(msgToSend);
     }
@@ -422,10 +441,10 @@ public class ClientHandler implements Runnable, ChatParticipant {
         } else {
             // send message ii general chat if that user has not joined the group
             synchronized (clients) {
-                for (ClientHandler client : clients) {
+                for (ChatParticipant client : clients) {
 
                     // we dont wanna send to group
-                    if (!client.getUsername().equals(this.username) && client.currentGroup == null) {
+                    if (!client.getUsername().equals(this.username) && client.getCurrentGroup() == null) {
                         client.sendToClient(this.username + ": " + message);
                     }
                 }
@@ -434,25 +453,24 @@ public class ClientHandler implements Runnable, ChatParticipant {
     }
 
     public void handelDM(String receiver, String messageToSend){
-       // first check if the target user is in Senders server
-        ClientHandler target = null;
-        synchronized (clients) {
-            for (ClientHandler client : clients) {
-                if (client.getUsername().equalsIgnoreCase(receiver)) {
-                    target = client;
-                    break;
-                }
-            }
-        }
+        // First check if the target user is in sender's server
+        ChatParticipant target = getUserFromChat(receiver);
+
         if (target != null) {
+            // Receiver is local, deliver directly
             target.sendToClient("(DM) " + this.username + ": " + messageToSend);
         } else {
-            // if the user is not in the same server we send the DM through kafka and redis will handle it
-            // no need for server ID, why?, cuz the sender and reciver will be conected
-            // to the same redis instance and the message will be delivered to the reciver server and then to the reciver client
-
-            String payloadToSend = this.username + ":" + receiver + ":" + messageToSend;
-            sendMessageToKafka("direct_message", payloadToSend);
+            // Receiver is not local, check Redis for their server
+            String receiverServerID = redisManager.getUserServer(receiver);
+            
+            if (receiverServerID != null && !receiverServerID.isEmpty()) {
+                // Receiver is on another server, send targeted Kafka message
+                String payloadToSend = receiverServerID + "#" + this.username + ":" + receiver + ":" + messageToSend;
+                kafkaManager.sendMessageToKafka("direct_message", payloadToSend);
+            } else {
+                // Receiver not found on any server
+                consoleDisplay("User " + receiver + " is not currently online.");
+            }
         }
     }
 
@@ -460,45 +478,22 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
     public static void deliverLKafkaMessageDM(String chunk){
         String[] divided = chunk.split(":",3);
-        String sender =  divided[0];
+        String sender = divided[0];
         String receiver = divided[1];
         String message = divided[2];
 
-        ClientHandler target = null;
-        synchronized (clients) {
-            for (ClientHandler client : clients) {
-                if (client.getUsername().equalsIgnoreCase(receiver)) {
-                    target = client;
-                    break;
-                }
-            }
-        }
-
-        if (!directMessageService.checkIfDirectMessageExists(sender, receiver)) {
-            System.err.println("Direct Message does not exist between " + sender + " and " + receiver);
-            System.out.println("Establishing direct message for " + sender + " and " + receiver);
-            directMessageService.createDirectMessage(sender, receiver);
-        }
-
-        // if theres a connection between useer A and B hen send
-        target.sendToClient("(DM) " + sender + ": " + message);
+        kafkaManager.deliverLKafkaDM(sender, receiver, message);
     }
 
     public static void deliverKafkaMessageGroup(String chunk) {
         String[] divided = chunk.split(":",3);
         String senderUsername = divided[0];
-        String groupName = divided[1];
+        String groupName = divided[1].isEmpty() ? null : divided[1]; // since most of the functions handel grp name as null
         String message = divided[2];
 
-        // this is when if the grp isnt local but in redis and we need to send the message to the local clients in that group
-        synchronized (clients) {
-            for (ClientHandler client : clients) {
-                if (groupName.equals(client.currentGroup) && !client.getUsername().equals(senderUsername)) {
-                    client.sendToClient(senderUsername + ": " + message);
-                }
-            }
-        }
-        System.out.println("Delivered Kafka message to group '" + groupName + "by: " + senderUsername);
+        log.info("Sending: {}",chunk);
+
+        kafkaManager.deliverLKafkaMessageGroup(senderUsername, groupName, message);
     }
 
 
@@ -512,7 +507,6 @@ public class ClientHandler implements Runnable, ChatParticipant {
      */
     public void handleCommands(String command) {
         String[] args = command.split(" ",3);
-        System.out.println("Args " +  Arrays.toString(args));
         String commandKey = args[0].toLowerCase();
 
         // args -> [command, [text/group/username, [message]]]] [NOT A list(list(list))) ]
@@ -659,6 +653,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
     public void removeClient() {
         if (currentGroup != null) redisManager.leaveGroup(currentGroup, username, Server.getServerID());
 
+        redisManager.removeUserServer(username);
         clients.remove(this); // removes the current client
         statusService.userLeft(username); // not sure if i should remove user or set them to offline?
         friendService.removeUser(username);

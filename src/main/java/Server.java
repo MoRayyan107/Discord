@@ -109,8 +109,23 @@ public class Server {
                         String value = record.value();
 
                         if (topic.equals("direct_message")) {
-                            System.out.println("Received direct message from Kafka: " + record.value()); // DEBUG
-                            ClientHandler.deliverLKafkaMessageDM(value);
+                            System.out.println("Received direct message from Kafka: " + value); // DEBUG
+                            
+                            // Check if this DM is targeted at this server
+                            String[] parts = value.split("#", 2);
+                            
+                            if (parts.length < 2) {
+                                System.err.println("Malformed Data for Kafka Consumer");
+                                return;
+                            }
+
+                            // Targeted DM format: targetServerID#sender:receiver:message
+                            String targetServerID = parts[0];
+                            String messageChunk = parts[1];
+
+                            if (targetServerID.equals(SERVER_ID))
+                                ClientHandler.deliverLKafkaMessageDM(messageChunk);
+
                         }
 
                         else if (topic.equals("messages")) {

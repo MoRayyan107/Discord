@@ -9,6 +9,8 @@ import manager.KafkaManager;
 import manager.RedisManager;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stage3.dm.DirectMessageInterface;
 import stage3.dm.DirectServerMessage;
 import stage3.status.StatusInterface;
@@ -57,6 +59,9 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private static final MessageHistory messageHistory = new SafeMessageHistory();
     private static final FriendInterface friendService = new SafeFriendManager();
     private static final DirectMessageInterface directMessageService = new DirectServerMessage();
+
+    // Logger FACTORY
+    private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
 
     // ---------------------- ALL STATIC INITIALISATION -----------------------------
 
@@ -483,8 +488,10 @@ public class ClientHandler implements Runnable, ChatParticipant {
     public static void deliverKafkaMessageGroup(String chunk) {
         String[] divided = chunk.split(":",3);
         String senderUsername = divided[0];
-        String groupName = divided[1];
+        String groupName = divided[1].isEmpty() ? null : divided[1]; // since most of the functions handel grp name as null
         String message = divided[2];
+
+        log.info("Sending: {}",chunk);
 
         kafkaManager.deliverLKafkaMessageGroup(senderUsername, groupName, message);
     }

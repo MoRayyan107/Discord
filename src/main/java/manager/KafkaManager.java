@@ -2,8 +2,9 @@ package manager;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import stage3.dm.DirectMessageInterface;
-import stage3.dm.DirectServerMessage;
 import stage3.groupchat.interfaces.ChatParticipant;
 
 import java.io.InputStream;
@@ -15,6 +16,15 @@ public class KafkaManager {
     private final KafkaProducer<String, String> producer;
     private final List<ChatParticipant> participants;
     private final DirectMessageInterface dmInterface;
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaManager.class);
+
+    // constructor for Test
+    public KafkaManager(List<ChatParticipant> participants, DirectMessageInterface dmInterface, KafkaProducer<String, String> producer) {
+        this.producer = producer;
+        this.participants = participants;
+        this.dmInterface = dmInterface;
+    }
 
     public KafkaManager(List<ChatParticipant> chats, DirectMessageInterface dmInterface) {
         try{
@@ -40,6 +50,12 @@ public class KafkaManager {
 
     public void deliverLKafkaMessageGroup(String senderUsername, String groupName, String message){
         String formattedMessage = senderUsername + ": " + message;
+
+        if (groupName == null || groupName.isEmpty()) {
+            log.warn("Cannot Send with Empty Group name");
+            return;
+        }
+
         for (ChatParticipant participant : participants) {
             if (groupName.equals(participant.getCurrentGroup())) {
                 if (!participant.getUsername().equals(senderUsername)) {
@@ -68,12 +84,18 @@ public class KafkaManager {
     }
 
 
-    private ChatParticipant findUserInChats(String senderUsername){
-        for (ChatParticipant participant : participants) {
-            if (participant.getUsername().equals(senderUsername))
-                return participant;
+    private ChatParticipant findUserInChats(String receiverUsername){
+        if (receiverUsername == null || receiverUsername.trim().isEmpty()) {
+            log.warn("Cannot send DM with empty receiver username");
+            return null;
         }
-        return null; // User not found
+
+        ChatParticipant user = null;
+        for (ChatParticipant participant : participants) {
+            if (participant.getUsername().equals(receiverUsername))
+                user = participant;
+        }
+        return user;
     }
 
 

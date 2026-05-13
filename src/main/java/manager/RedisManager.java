@@ -107,7 +107,7 @@ public class RedisManager {
         try(Jedis jedis = jedisPool.getResource()) {
             jedis.set("user:" + username + ":server", serverID);
         }
-    }
+               }
 
     public String getUserServer(String username) {
         try(Jedis jedis = jedisPool.getResource()) {

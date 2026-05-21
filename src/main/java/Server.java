@@ -86,8 +86,16 @@ public class Server {
                 Socket clientSocket = serverSocket.accept(); // wait for the client to connect
                 System.out.println("Client connected: " + clientSocket.getInetAddress().getHostAddress());
 
-                ClientHandler handler = new ClientHandler(clientSocket);
-                threadPool.execute(handler);
+                // new change: instead of submitting raw Runnables to the thread pool,
+                // we create a ClientHandler for each client connection and run it in a separate thread
+                threadPool.execute(() -> {
+                    try{
+                        ClientHandler handler = new ClientHandler(clientSocket);
+                        handler.run();
+                    } catch(Exception e){
+                        System.err.println("Error handling client connection: " + e.getMessage());
+                    }
+                });
 
             }
         } catch (IOException e) {

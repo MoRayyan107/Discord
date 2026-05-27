@@ -17,6 +17,7 @@ public class Client {
     private String username;
     private String password;
     private String email;
+    private String token;
 
     /**
      * Initializes the client by setting up the socket connection and input/output streams.
@@ -93,6 +94,16 @@ public class Client {
 
             if (serverMsg.equals("REG_FAILURE")) {
                 System.out.println("Registration failed. Please check your credentials and try again.");
+                return;
+            }
+
+            // get the token
+            String tokenReceived = in.readLine();
+            if (tokenReceived != null && tokenReceived.startsWith("TOKEN: ")) {
+                this.token = tokenReceived.substring(7);
+                System.out.println("Authentication successful.");
+            } else {
+                System.out.println("Failed to receive authentication token from server.");
                 return;
             }
 

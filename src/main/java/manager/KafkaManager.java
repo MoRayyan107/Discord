@@ -56,10 +56,12 @@ public class KafkaManager {
             return;
         }
 
-        for (ChatParticipant participant : participants) {
-            if (groupName.equals(participant.getCurrentGroup())) {
-                if (!participant.getUsername().equals(senderUsername)) {
-                    participant.sendToClient(formattedMessage);
+        synchronized (participants) {
+            for (ChatParticipant participant : participants) {
+                if (groupName.equals(participant.getCurrentGroup())) {
+                    if (!participant.getUsername().equals(senderUsername)) {
+                        participant.sendToClient(formattedMessage);
+                    }
                 }
             }
         }

@@ -1,5 +1,9 @@
 import java.io.*;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
+import java.security.SecureRandom;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,7 +47,6 @@ public class ClientHandler implements Runnable, ChatParticipant {
     private String username;
     private final String clientIP;
 
-
     // rate limit checks
     private int messageCountForRateLimit = 0;
     private Long lastMessageTime = System.currentTimeMillis();
@@ -62,6 +65,9 @@ public class ClientHandler implements Runnable, ChatParticipant {
 
     // Logger FACTORY
     private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
+
+    // for random value generation like for ports for file transfering
+    private static final SecureRandom secureRandom = new SecureRandom();
 
     // ---------------------- ALL STATIC INITIALISATION -----------------------------
 
@@ -363,7 +369,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
         }
 
         String receiverIP = target.getClientIP();
-        int randPort = 4000 + (int)(Math.random() * 6000); // 4000 - 9999
+        int randPort = (int) getSecurePort(); // 4000 - 9999
 
         target.sendToClient("FILE_RECEIVER_READY:"+randPort+ ":"+ this.username);
 
@@ -386,7 +392,7 @@ public class ClientHandler implements Runnable, ChatParticipant {
         }
 
         String receiverIP = target.getClientIP();
-        int randPort = 4000 + (int)(Math.random() * 6000); // 4000-9999
+        int randPort = (int) getSecurePort(); // 4000-9999
 
         target.sendToClient("STREAM_RECEIVER_READY:" + randPort + ":" + this.username);
         this.sendToClient("STREAM_SENDER_READY:" + receiverIP + ":" + randPort);
@@ -681,5 +687,28 @@ public class ClientHandler implements Runnable, ChatParticipant {
     // easy access to Server if its Shutting Down
     public static void closeDB(){
         usersDB.closeDB_Connection();
+    }
+
+
+    // get Secure Port for transferring a file
+    private static long getSecurePort(){
+        final int MAX_PORT = 6000;
+        final int MIN_PORT = 4000;
+        final int MAX_ATTEMPTS = 100;
+
+        for (int AttemptNumber = 0; AttemptNumber < MAX_ATTEMPTS; AttemptNumber++) {
+            int port = MIN_PORT + secureRandom.nextInt(MAX_PORT);
+
+            try (ServerSocket newSocket = new ServerSocket()) {
+                newSocket.setReuseAddress(true);
+                newSocket.bind(new InetSocketAddress(port));
+                return port;
+
+            } catch (Exception ex){
+                System.err.println("Port " + port + " is not available. Attempting another port...");
+            }
+        }
+
+        return 0; // if we failed to find a port after max attempts
     }
 }

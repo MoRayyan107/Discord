@@ -108,18 +108,6 @@ Group creators and joiners are registered in Redis. On disconnect, members are r
 
 ---
 
-## Thread Safety
-
-| Class | Mechanism | Why |
-|---|---|---|
-| `SafeGroupChat` | `ReentrantLock` | Protects member list and message history |
-| `ClientHandler.clients` | `Collections.synchronizedList` | Multiple handler threads access the shared client list |
-| `groupChats` | `ConcurrentHashMap` | Concurrent group creation and access |
-| `sequenceNumber` | `AtomicInteger` | Lock-free message ordering |
-| `UnsafeGroupChat` | None (intentional) | Demonstrates race conditions in tests |
-
----
-
 ## Requirements
 
 - Java 17+
